@@ -1,9 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 152, "column": 0}, "map": {"version":3,"sources":[],"names":[],"mappings":"","debugId":null}},
-    {"offset": {"line": 215, "column": 0}, "map": {"version":3,"sources":["file:///home/rit3sh/Downloads/yoyoyo-main/src/app/%5B...slug%5D/page.tsx/proxy.mjs"],"sourcesContent":["import { registerClientReference } from \"react-server-dom-turbopack/server.edge\";\nexport default registerClientReference(\n    function() { throw new Error(\"Attempted to call the default export of [project]/src/app/[...slug]/page.tsx <module evaluation> from the server, but it's on the client. It's not possible to invoke a client function from the server, it can only be rendered as a Component or passed to props of a Client Component.\"); },\n    \"[project]/src/app/[...slug]/page.tsx <module evaluation>\",\n    \"default\",\n);\n"],"names":[],"mappings":";;;AAAA;;uCACe,CAAA,GAAA,qPAAA,CAAA,0BAAuB,AAAD,EACjC;IAAa,MAAM,IAAI,MAAM;AAA8R,GAC3T,4DACA","debugId":null}},
-    {"offset": {"line": 229, "column": 0}, "map": {"version":3,"sources":["file:///home/rit3sh/Downloads/yoyoyo-main/src/app/%5B...slug%5D/page.tsx/proxy.mjs"],"sourcesContent":["import { registerClientReference } from \"react-server-dom-turbopack/server.edge\";\nexport default registerClientReference(\n    function() { throw new Error(\"Attempted to call the default export of [project]/src/app/[...slug]/page.tsx from the server, but it's on the client. It's not possible to invoke a client function from the server, it can only be rendered as a Component or passed to props of a Client Component.\"); },\n    \"[project]/src/app/[...slug]/page.tsx\",\n    \"default\",\n);\n"],"names":[],"mappings":";;;AAAA;;uCACe,CAAA,GAAA,qPAAA,CAAA,0BAAuB,AAAD,EACjC;IAAa,MAAM,IAAI,MAAM;AAA0Q,GACvS,wCACA","debugId":null}},
-    {"offset": {"line": 243, "column": 0}, "map": {"version":3,"sources":[],"names":[],"mappings":"","debugId":null}}]
-}
