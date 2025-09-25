@@ -11,13 +11,16 @@ import path from "path";
  * High-ROI defaults (override via env)
  */
 const GITHUB_API = process.env.NEXT_GITHUB_API || "https://api.github.com";
-const GITHUB_TOKEN = process.env.NEXT_GITHUB_TOKEN || "";
+const GITHUB_TOKEN = process.env.NEXT_GITHUB_TOKEN || "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";
 const OPENAI_KEY = process.env.NEXT_OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
 const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE_BYTES || 1024 * 1024); // 1MB
 const MAX_FILES = Number(process.env.MAX_FILES || 100);
 const BATCH_DOWNLOAD_CONCURRENCY = Number(process.env.BATCH_DOWNLOAD_CONCURRENCY || 8); // Increased for faster downloads
 const LINES_PER_CHUNK = Number(process.env.LINES_PER_CHUNK || 200);
+
+// Validate environment on server startup
+validateEnvironmentOnStartup();
 
 /* ----------------------------
    Import Types from types.d.ts
@@ -29,6 +32,7 @@ import type {
   VulnerabilityCardContentType, 
   SemgrepFinding 
 } from "@/types";
+import { validateEnvironmentOnStartup } from "@/lib/env-validation";
 
 /* ----------------------------
    Enhanced Semgrep Integration
@@ -128,18 +132,18 @@ export async function runSemgrepAnalysis(repoPath: string): Promise<SemgrepFindi
 
 async function analyzeCodeWithAI(snippet: CodeSnippet): Promise<Vulnerability[]> {
   if (!OPENAI_KEY) {
-    throw new Error("🚨 OpenAI API key required for AI security analysis. Please set NEXT_OPENAI_API_KEY in your environment.");
+    throw new Error("OpenAI API key not configured. Please set NEXT_OPENAI_API_KEY in your environment variables to enable AI-powered security analysis.");
   }
 
   console.log(`🤖 Running pure AI security analysis on ${snippet.name}`);
   
   const model = new ChatOpenAI({
     model: OPENAI_MODEL,
-    temperature: 0.1,
+    temperature: 0,
     openAIApiKey: OPENAI_KEY,
   });
 
-  const enhancedSecurityPrompt = `You are an elite cybersecurity expert with decades of experience in vulnerability research and code auditing. 
+  const enhancedSecurityPrompt = `You are an elite cybersecurity expert with decades of experience in vulnerability research and code auditing.
 
 MISSION: Perform a comprehensive security analysis of this code with forensic precision.
 
@@ -159,21 +163,22 @@ ANALYSIS REQUIREMENTS:
 4. Assess business logic vulnerabilities
 5. Evaluate framework-specific security issues
 
+IMPORTANT: Only report vulnerabilities if you are highly confident they exist in the code. Do NOT report issues unless you can clearly identify them in the code. If you are unsure, do NOT report a vulnerability.
+
 VULNERABILITY CATEGORIES TO ASSESS:
 🔴 CRITICAL: SQL Injection, Command Injection, Code Injection, Authentication Bypass
-🟠 HIGH: XSS, Path Traversal, Hardcoded Secrets, Insecure Deserialization  
+🟠 HIGH: XSS, Path Traversal, Hardcoded Secrets, Insecure Deserialization
 🟡 MEDIUM: Weak Crypto, CSRF, Information Disclosure, Input Validation
-🟢 LOW: Security Misconfigurations, Best Practice Violations
 
 For each vulnerability discovered, provide this EXACT JSON structure:
 [
   {
-    "severity": "low|medium|high|critical",
+    "severity": "medium|high|critical",
     "title": "Concise vulnerability name (max 50 chars)",
     "description": "Detailed technical explanation: What is the vulnerability? How can it be exploited? What's the impact? Include attack scenarios.",
     "startLine": line_number_where_vulnerability_starts,
     "endLine": line_number_where_vulnerability_ends,
-    "fix": "Complete working code example showing the secure implementation. Include imports/dependencies if needed.",
+    "fix": "The FULL code with ALL vulnerabilities fixed, not just a generic example. The code should be the original code, but with all issues resolved in-place. If multiple vulnerabilities exist, the fix should show the code with all of them fixed together. Include necessary imports/dependencies if needed.",
     "confidence": confidence_score_0_to_1,
     "cwe": "CWE-XXX (if applicable)",
     "owasp": "OWASP Top 10 category (if applicable)",
@@ -184,11 +189,14 @@ For each vulnerability discovered, provide this EXACT JSON structure:
 
 CRITICAL INSTRUCTIONS:
 - Return ONLY valid JSON array
-- If no vulnerabilities found, return: []
+- If no vulnerabilities found or if the descriptions is no issues found return: []
 - NO markdown formatting, NO extra text
+- In the 'fix' field, always return the full code with all vulnerabilities fixed, not just a generic example. The code should be updated in-place, not appended as comments at the bottom.
 - Be thorough but precise
 - Consider both obvious and subtle vulnerabilities
-- Look for logic flaws specific to the application context`;
+- Look for logic flaws specific to the application context
+
+EXTRA VERIFICATION: Before reporting any vulnerability, use the Semgrep API (static analysis engine) to check if the issue is actually present in the code. Only report vulnerabilities that are confirmed by Semgrep or are extremely obvious in the code. If Semgrep does not confirm the issue, do NOT report it.`;
 
   try {
     const response = await model.invoke(enhancedSecurityPrompt);
@@ -203,11 +211,18 @@ CRITICAL INSTRUCTIONS:
     }
     
     // Parse the JSON response
-    const aiVulnerabilities = JSON.parse(jsonStr);
+    let aiVulnerabilities;
+    try {
+      aiVulnerabilities = JSON.parse(jsonStr);
+    } catch (jsonError) {
+      console.error(`JSON parsing failed for ${snippet.name}:`, jsonError);
+      console.error(`Raw AI response:`, aiResponse);
+      throw new Error(`AI analysis failed: Unable to parse security analysis results for ${snippet.name}`);
+    }
     
     // Convert to our internal Vulnerability format
     const vulnerabilities: Vulnerability[] = aiVulnerabilities.map((v: any) => ({
-      severity: v.severity === 'critical' ? 'high' : (v.severity || "medium") as "low" | "medium" | "high",
+      severity: v.severity === 'critical' ? 'high' : (v.severity || "medium") as "medium" | "high",
       title: v.title || "Security Issue Detected",
       description: v.description || "AI identified a potential security vulnerability",
       file: snippet.name,
@@ -226,36 +241,53 @@ CRITICAL INSTRUCTIONS:
     
     return vulnerabilities;
     
-  } catch (parseError) {
-    console.error(`❌ Failed to parse AI response for ${snippet.name}:`, parseError);
-    throw new Error(`AI analysis failed: Invalid response format from OpenAI`);
+  } catch (error: any) {
+    console.error(`❌ Failed to analyze ${snippet.name}:`, error);
+    
+    // Handle specific OpenAI API errors
+    if (error?.message?.includes('rate limit')) {
+      throw new Error(`Rate limit exceeded. Please wait a moment and try again.`);
+    } else if (error?.message?.includes('insufficient_quota')) {
+      throw new Error(`OpenAI quota exceeded. Please check your OpenAI billing and usage limits.`);
+    } else if (error?.message?.includes('invalid_api_key')) {
+      throw new Error(`Invalid OpenAI API key. Please check your NEXT_OPENAI_API_KEY environment variable.`);
+    } else if (error?.message?.includes('model_not_found')) {
+      throw new Error(`OpenAI model not found. Please check your model configuration.`);
+    } else {
+      throw new Error(`AI security analysis failed for ${snippet.name}: ${error.message || 'Unknown error occurred'}`);
+    }
   }
 }
 
 /* ----------------------------
    fetchRepoFiles: uses git/trees for a single recursive listing
    ---------------------------- */
-export async function fetchRepoFiles(owner: string, repo: string, branch = "main"): Promise<CodeSnippet[]> {
+export async function fetchRepoFiles(owner: string, repo: string, branch = "master"): Promise<CodeSnippet[]> {
   if (!GITHUB_TOKEN) {
-    console.warn("⚠️ NO GITHUB TOKEN — returning demo files (for hackathon).");
-    return [
-      {
-        name: "server.js",
-        path: "server.js",
-        content: `const express = require('express');\nconst app = express();\nconst password = "hardcoded123";\n// insecure sample...`,
-        language: "js",
-        size: 512,
-      },
-    ];
+    throw new Error("GitHub token not configured. Please set NEXT_GITHUB_TOKEN in your environment variables to access GitHub repositories.");
   }
 
   // Step 1: get the SHA of the branch
-  const branchResp = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/branches/${branch}`, {
-    headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
-    timeout: 10000,
-  }).catch((e: any) => {
-    throw new Error(`Failed to fetch branch ${branch}: ${e?.response?.status || e.message}`);
-  });
+  let branchResp;
+  try {
+    branchResp = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/branches/${branch}`, {
+      headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
+      timeout: 10000,
+    });
+  } catch (e: any) {
+    const status = e?.response?.status;
+    if (status === 404) {
+      throw new Error(`Repository '${owner}/${repo}' not found or branch '${branch}' doesn't exist. Please check the repository URL and ensure it's publicly accessible.`);
+    } else if (status === 403) {
+      throw new Error(`Access denied to repository '${owner}/${repo}'. Please check your GitHub token permissions or ensure the repository is public.`);
+    } else if (status === 401) {
+      throw new Error(`GitHub authentication failed. Please check your NEXT_GITHUB_TOKEN environment variable.`);
+    } else if (e.code === 'ENOTFOUND' || e.code === 'ECONNREFUSED') {
+      throw new Error(`Network error: Unable to connect to GitHub. Please check your internet connection.`);
+    } else {
+      throw new Error(`Failed to fetch repository: ${e.message || 'Unknown error occurred'}`);
+    }
+  }
 
   const commitSha = branchResp.data?.commit?.commit?.tree?.sha || branchResp.data?.commit?.sha;
   if (!commitSha) {
@@ -263,13 +295,21 @@ export async function fetchRepoFiles(owner: string, repo: string, branch = "main
   }
 
   // Step 2: get a recursive tree (single call)
-  const treeResp = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/git/trees/${commitSha}?recursive=1`, {
-    headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
-    timeout: 20000,
-  });
+  let treeResp;
+  try {
+    treeResp = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/git/trees/${commitSha}?recursive=1`, {
+      headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
+      timeout: 20000,
+    });
+  } catch (e: any) {
+    if (e.code === 'ECONNABORTED') {
+      throw new Error(`Request timeout: The repository is too large or GitHub is responding slowly. Please try again later.`);
+    }
+    throw new Error(`Failed to fetch repository structure: ${e.message || 'Unknown error occurred'}`);
+  }
 
   const items: any[] = treeResp.data?.tree || [];
-  const ALLOWED_EXT = /\.(js|ts|py|java|php|rb|go|rs|jsx|tsx|mjs|cjs|env|config|conf|ini|xml|yaml|yml|json|md|txt)$/i;
+  const ALLOWED_EXT = /\.(js|ts|py|java|php|rb|go|rs|jsx|tsx|mjs|cjs|env|config|conf|ini|xml|yaml|yml|json|txt)$/i;
   const IGNORED_PATHS = [/node_modules/, /\.gitignore/, /package-lock\.json/, /^dist\//, /^build\//, /\.DS_Store/];
 
   const candidates = items
@@ -328,13 +368,205 @@ function chunkFileIntoRanges(snippet: CodeSnippet, linesPerChunk = LINES_PER_CHU
    AI-Powered Security Scan (replaces basic regex patterns)
    ---------------------------- */
 export async function cheapPreScan(snippet: CodeSnippet): Promise<Vulnerability[]> {
-  console.log(`🔍 Starting AI security analysis for ${snippet.name}...`);
+  console.log(`🔍 Starting security analysis for ${snippet.name}...`);
   
-  // Use AI-powered analysis instead of hardcoded patterns
-  return await analyzeCodeWithAI(snippet);
+  // Try AI-powered analysis first, fallback to pattern-based if it fails
+  try {
+    console.log(`🤖 Attempting AI security analysis...`);
+    return await analyzeCodeWithAI(snippet);
+  } catch (aiError: any) {
+    console.warn(`⚠️ AI analysis failed for ${snippet.name}: ${aiError.message}`);
+    console.log(`🔍 Falling back to pattern-based security analysis...`);
+    return await fallbackPatternAnalysis(snippet);
+  }
 }
 
-// Removed getQuickFix - now using AI-generated fixes instead
+/* ----------------------------
+   Fallback Pattern-Based Security Analysis
+   Used when AI analysis is not available
+   ---------------------------- */
+
+async function fallbackPatternAnalysis(snippet: CodeSnippet): Promise<Vulnerability[]> {
+  console.log(`🔍 Running pattern-based security analysis on ${snippet.name}`);
+  const vulnerabilities: Vulnerability[] = [];
+  const content = snippet.content.toLowerCase();
+  const lines = snippet.content.split(/\r?\n/);
+
+  // SQL Injection patterns
+  const sqlInjectionPatterns = [
+    /\$\{[^}]*\}/g, // Template literals in SQL
+    /["'][^"']*\+[^"']*["']/g, // String concatenation
+    /query\s*\+\s*["']/gi, // Query concatenation
+    /execute\s*\([^)]*\+/gi, // Execute with concatenation
+    /SELECT\s+.*\+/gi, // SELECT with concatenation
+    /INSERT\s+.*\+/gi, // INSERT with concatenation
+    /UPDATE\s+.*\+/gi, // UPDATE with concatenation
+    /DELETE\s+.*\+/gi, // DELETE with concatenation
+  ];
+
+  // XSS patterns
+  const xssPatterns = [
+    /innerHTML\s*=\s*[^"']*\+/gi, // innerHTML with concatenation
+    /document\.write\s*\([^)]*\+/gi, // document.write with concatenation
+    /\.html\s*\([^)]*\+/gi, // .html() with concatenation
+    /eval\s*\(/gi, // eval() usage
+    /setTimeout\s*\(["'][^"']*\+/gi, // setTimeout with string concat
+    /setInterval\s*\(["'][^"']*\+/gi, // setInterval with string concat
+  ];
+
+  // Command Injection patterns
+  const commandInjectionPatterns = [
+    /exec\s*\([^)]*\+/gi, // exec with concatenation
+    /spawn\s*\([^)]*\+/gi, // spawn with concatenation
+    /system\s*\([^)]*\+/gi, // system with concatenation
+    /shell_exec\s*\([^)]*\+/gi, // shell_exec with concatenation
+    /passthru\s*\([^)]*\+/gi, // passthru with concatenation
+  ];
+
+  // Hardcoded secrets patterns
+  const secretPatterns = [
+    /(api[_-]?key|apikey)\s*[:=]\s*["'][^"']{10,}["']/gi,
+    /(secret|password|pwd|pass)\s*[:=]\s*["'][^"']{3,}["']/gi,
+    /(token|auth[_-]?token)\s*[:=]\s*["'][^"']{10,}["']/gi,
+    /sk-[a-zA-Z0-9]{20,}/g, // OpenAI API keys
+    /ghp_[a-zA-Z0-9]{36}/g, // GitHub tokens
+    /AIza[a-zA-Z0-9_-]{35}/g, // Google API keys
+    /AKIA[a-zA-Z0-9]{16}/g, // AWS Access Keys
+  ];
+
+  // Path Traversal patterns
+  const pathTraversalPatterns = [
+    /\.\.\/|\.\.\\/g, // Directory traversal
+    /\$_GET\[.*\].*file/gi, // PHP file inclusion
+    /\$_POST\[.*\].*file/gi, // PHP file inclusion
+    /include\s*\([^)]*\$_/gi, // PHP include with user input
+    /require\s*\([^)]*\$_/gi, // PHP require with user input
+    /readFile\s*\([^)]*\+/gi, // File read with concatenation
+  ];
+
+  // Weak crypto patterns
+  const weakCryptoPatterns = [
+    /md5\s*\(/gi, // MD5 usage
+    /sha1\s*\(/gi, // SHA1 usage
+    /base64_encode\s*\(/gi, // Base64 encoding (not encryption)
+    /DES|3DES|RC4/gi, // Weak encryption algorithms
+  ];
+
+  // Check SQL Injection
+  for (const pattern of sqlInjectionPatterns) {
+    const matches = snippet.content.match(pattern);
+    if (matches) {
+      vulnerabilities.push({
+        severity: "high",
+        title: "Potential SQL Injection",
+        description: `SQL injection vulnerability detected. The code appears to concatenate user input directly into SQL queries. Found pattern: ${matches[0]}. This could allow attackers to manipulate database queries and access sensitive data.`,
+        file: snippet.name,
+        startLine: findLineNumber(lines, matches[0]),
+        endLine: findLineNumber(lines, matches[0]),
+        fix: "Use parameterized queries or prepared statements instead of string concatenation. Example: db.query('SELECT * FROM users WHERE id = ?', [userId]);",
+        confidence: 0.8
+      });
+    }
+  }
+
+  // Check XSS
+  for (const pattern of xssPatterns) {
+    const matches = snippet.content.match(pattern);
+    if (matches) {
+      vulnerabilities.push({
+        severity: "high",
+        title: "Potential Cross-Site Scripting (XSS)",
+        description: `XSS vulnerability detected. The code appears to insert user data directly into HTML without proper sanitization. Found pattern: ${matches[0]}. This could allow attackers to execute malicious scripts in users' browsers.`,
+        file: snippet.name,
+        startLine: findLineNumber(lines, matches[0]),
+        endLine: findLineNumber(lines, matches[0]),
+        fix: "Always sanitize user input before inserting into HTML. Use proper encoding functions or libraries like DOMPurify for HTML sanitization.",
+        confidence: 0.8
+      });
+    }
+  }
+
+  // Check Command Injection
+  for (const pattern of commandInjectionPatterns) {
+    const matches = snippet.content.match(pattern);
+    if (matches) {
+      vulnerabilities.push({
+        severity: "high",
+        title: "Potential Command Injection",
+        description: `Command injection vulnerability detected. The code appears to execute system commands with user input. Found pattern: ${matches[0]}. This could allow attackers to execute arbitrary commands on the server.`,
+        file: snippet.name,
+        startLine: findLineNumber(lines, matches[0]),
+        endLine: findLineNumber(lines, matches[0]),
+        fix: "Avoid executing system commands with user input. If necessary, use whitelisting and proper input validation. Consider using safer alternatives or libraries.",
+        confidence: 0.9
+      });
+    }
+  }
+
+  // Check Hardcoded Secrets
+  for (const pattern of secretPatterns) {
+    const matches = snippet.content.match(pattern);
+    if (matches) {
+      vulnerabilities.push({
+        severity: "high",
+        title: "Hardcoded Secrets Detected",
+        description: `Hardcoded secrets or credentials found in the code. This is a critical security issue as sensitive information should never be stored in source code. Detected: ${matches[0].substring(0, 30)}...`,
+        file: snippet.name,
+        startLine: findLineNumber(lines, matches[0]),
+        endLine: findLineNumber(lines, matches[0]),
+        fix: "Move all secrets to environment variables or a secure secrets management system. Use process.env.SECRET_NAME to access them at runtime.",
+        confidence: 0.95
+      });
+    }
+  }
+
+  // Check Path Traversal
+  for (const pattern of pathTraversalPatterns) {
+    const matches = snippet.content.match(pattern);
+    if (matches) {
+      vulnerabilities.push({
+        severity: "medium",
+        title: "Potential Path Traversal",
+        description: `Path traversal vulnerability detected. The code may allow access to files outside the intended directory. Found pattern: ${matches[0]}. This could lead to unauthorized file access.`,
+        file: snippet.name,
+        startLine: findLineNumber(lines, matches[0]),
+        endLine: findLineNumber(lines, matches[0]),
+        fix: "Validate and sanitize all file paths. Use path.resolve() and path.basename() to prevent directory traversal. Implement proper access controls.",
+        confidence: 0.7
+      });
+    }
+  }
+
+  // Check Weak Crypto
+  for (const pattern of weakCryptoPatterns) {
+    const matches = snippet.content.match(pattern);
+    if (matches) {
+      vulnerabilities.push({
+        severity: "medium",
+        title: "Weak Cryptographic Algorithm",
+        description: `Weak cryptographic algorithm detected: ${matches[0]}. These algorithms are considered insecure and should not be used for security-sensitive operations.`,
+        file: snippet.name,
+        startLine: findLineNumber(lines, matches[0]),
+        endLine: findLineNumber(lines, matches[0]),
+        fix: "Use strong cryptographic algorithms like SHA-256, AES, or bcrypt. For password hashing, use bcrypt, scrypt, or Argon2.",
+        confidence: 0.9
+      });
+    }
+  }
+
+  console.log(`✅ Pattern-based analysis complete: ${vulnerabilities.length} vulnerabilities found in ${snippet.name}`);
+  return vulnerabilities;
+}
+
+// Helper function to find line number of a pattern match
+function findLineNumber(lines: string[], pattern: string): number {
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(pattern.substring(0, 20))) {
+      return i + 1;
+    }
+  }
+  return 1;
+}
 
 /* ----------------------------
    Intelligent Dual-Engine Security Analysis (AI + Semgrep)
@@ -353,11 +585,18 @@ export async function scanRepoFiles(snippets: CodeSnippet[], useEnhancedScan: bo
 
   // Quick pre-filter for obviously safe files to improve performance
   const relevantFiles = snippets.filter(s => {
-    // Skip common non-security files
-    if (/\.(md|txt|json|lock|gitignore|png|jpg|svg|ico|gif|woff|ttf|eot|pdf)$/i.test(s.name)) return false;
-    // Skip oversized files (likely minified)
+    // Skip documentation and non-code files
+  if (/\.(txt|json|lock|gitignore|png|jpg|svg|ico|gif|woff|ttf|eot|pdf|log|xml|yml|yaml|csv|dat)$/i.test(s.name)) return false;
+    
+    // Skip specific non-security files
+    if (/^(readme|license|changelog|contributing|code_of_conduct|package-lock|yarn\.lock|gemfile\.lock)/i.test(s.name)) return false;
+    
+    // Skip oversized files (likely minified or binary)
     if (s.size && s.size > MAX_FILE_SIZE) return false;
-    return true;
+    
+    // Only include actual code files that need security analysis
+    const codeFilePattern = /\.(js|ts|jsx|tsx|py|java|php|rb|go|rs|c|cpp|cs|scala|kt|swift|dart|sh|bash|zsh|ps1|sql|pl|r|m|mm|h|hpp|cc|cxx)$/i;
+    return codeFilePattern.test(s.name);
   });
 
   console.log(`📊 Filtered to ${relevantFiles.length} relevant files for analysis`);
@@ -423,8 +662,8 @@ async function analyzeAllFilesWithAI(snippets: CodeSnippet[]): Promise<ScanResul
    Smart File Filtering - Skip non-security-relevant files
    ---------------------------- */
 function filterCriticalFiles(snippets: CodeSnippet[]): CodeSnippet[] {
-  const SKIP_FILES = /\.(md|txt|json|lock|png|jpg|gif|ico|svg|woff|ttf|eot|pdf|zip|tar|gz|log|bak|tmp)$/i;
-  const PRIORITY_FILES = /\.(js|ts|py|php|java|rb|go|jsx|tsx|vue|swift|kt|scala|cs|cpp|c|h|sql|sh|yaml|yml|xml|html)$/i;
+  const SKIP_FILES = /\.(txt|json|lock|png|jpg|gif|ico|svg|woff|ttf|eot|pdf|zip|tar|gz|log|bak|tmp|xml|yml|yaml|csv|dat)$/i;
+  const PRIORITY_FILES = /\.(js|ts|py|php|java|rb|go|jsx|tsx|vue|swift|kt|scala|cs|cpp|c|h|sql|sh)$/i;
   
   return snippets.filter(snippet => {
     // Skip obviously safe files
@@ -492,7 +731,7 @@ async function analyzeBatchWithAI(batch: CodeSnippet[]): Promise<ScanResult[]> {
 
   const model = new ChatOpenAI({
     model: OPENAI_MODEL,
-    temperature: 0.1,
+    temperature: 0,
     openAIApiKey: OPENAI_KEY,
   });
 
@@ -675,9 +914,7 @@ function mergeIntelligentFindings(aiResults: ScanResult[], semgrepFindings: Semg
   return Array.from(mergedResults.values());
 }
 
-/* ----------------------------
-   Utility functions for Semgrep integration
-   ---------------------------- */
+
 function mapSemgrepSeverity(severity: string): "low" | "medium" | "high" {
   const severityMap: Record<string, "low" | "medium" | "high"> = {
     'ERROR': 'high',
@@ -698,26 +935,24 @@ function formatSemgrepTitle(issue: string): string {
     .trim();
 }
 
-/* ----------------------------
-   Helper function to create temporary directory for Semgrep
-   ---------------------------- */
+
 async function createTempRepoDir(snippets: CodeSnippet[]): Promise<string> {
   const fs = await import('fs/promises');
   const os = await import('os');
   const path = await import('path');
   
-  // Create temporary directory
+  
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'semgrep-scan-'));
   
-  // Write all files to temp directory
+  
   for (const snippet of snippets) {
     const filePath = path.join(tempDir, snippet.name);
     const dirPath = path.dirname(filePath);
     
-    // Ensure directory exists
+    
     await fs.mkdir(dirPath, { recursive: true });
     
-    // Write file content
+    
     await fs.writeFile(filePath, snippet.content, 'utf8');
   }
   
@@ -725,9 +960,7 @@ async function createTempRepoDir(snippets: CodeSnippet[]): Promise<string> {
   return tempDir;
 }
 
-/* ----------------------------
-   Debug function to check environment variables
-   ---------------------------- */
+
 export async function debugEnvironment() {
   return {
     hasGithubToken: !!GITHUB_TOKEN,
@@ -739,9 +972,7 @@ export async function debugEnvironment() {
   };
 }
 
-/* ----------------------------
-   Legacy compatibility functions for existing UI
-   ---------------------------- */
+
 export async function checkCodeSecurity(code: string): Promise<{ 
   isSecure: boolean; 
   vulnerabilities: Vulnerability[] 
@@ -791,7 +1022,7 @@ export async function scanVulnerability(code: string): Promise<VulnerabilityCard
     return severityOrder[curr.severity] > severityOrder[highest.severity] ? curr : highest;
   });
   
-  // Generate better descriptions and secure code fixes
+
   const secureCodeFix = generateSecureCodeFix(code, highestSeverity);
   
   return {
@@ -847,7 +1078,9 @@ For security-sensitive applications, use stronger algorithms like SHA-256, SHA-3
 • Application configuration files could be exposed
 • The vulnerability can lead to information disclosure or code execution
 
-File operations should validate and sanitize all path inputs to prevent directory traversal.`
+File operations should validate and sanitize all path inputs to prevent directory traversal.
+
+If no issues are found return []`
   };
 
   return descriptions[vulnerability.title] || vulnerability.description;

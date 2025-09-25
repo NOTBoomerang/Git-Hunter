@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ArrowRight, GithubIcon, Upload, FileArchive, LoaderCircleIcon } from "lucide-react";
 import { GridBackground } from "@/components/ui/grid-background";
+import { useErrorToast, useSuccessToast } from "@/components/toast";
 
 export default function HomePage() {
   const [repoUrl, setRepoUrl] = useState("");
@@ -13,6 +14,9 @@ export default function HomePage() {
   const [uploadError, setUploadError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const showError = useErrorToast();
+  const showSuccess = useSuccessToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,11 +74,29 @@ export default function HomePage() {
       localStorage.setItem('uploadedFiles', JSON.stringify(result.files));
       localStorage.setItem('projectName', result.projectName);
       
+      // Show success message and navigate
+      showSuccess(
+        'ZIP file uploaded successfully!',
+        `Found ${result.fileCount || 'multiple'} code files for analysis.`
+      );
+      
       // Navigate to analysis page
       window.location.href = `/zip/${result.projectName}`;
 
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Failed to upload file');
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload file';
+      setUploadError(errorMessage);
+      showError(
+        'Upload failed',
+        errorMessage,
+        {
+          label: 'Try again',
+          onClick: () => {
+            setUploadError('');
+            fileInputRef.current?.click();
+          }
+        }
+      );
     } finally {
       setIsUploading(false);
     }

@@ -10,69 +10,186 @@ import os from 'os';
  */
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    // Parse form data with timeout and size limits
+    let formData;
+    try {
+      formData = await request.formData();
+    } catch (formError) {
+      console.error('Failed to parse form data:', formError);
+      return NextResponse.json(
+        { error: 'Invalid form data. Please try uploading the file again.' },
+        { status: 400 }
+      );
+    }
+    
     const file = formData.get('file') as File;
 
     if (!file) {
       return NextResponse.json(
-        { error: 'No file provided' },
+        { error: 'No file provided. Please select a ZIP file to upload.' },
+        { status: 400 }
+      );
+    }
+    
+    if (!file.name) {
+      return NextResponse.json(
+        { error: 'Invalid file. File name is missing.' },
         { status: 400 }
       );
     }
 
-    if (!file.name.endsWith('.zip')) {
+    if (!file.name.toLowerCase().endsWith('.zip')) {
       return NextResponse.json(
-        { error: 'Only ZIP files are allowed' },
+        { error: `Invalid file type. Only ZIP files are supported. Received: ${file.name}` },
         { status: 400 }
       );
     }
 
     // Security: Check file size (50MB limit as stated in UI)
     const MAX_ZIP_SIZE = 50 * 1024 * 1024; // 50MB
-    if (file.size > MAX_ZIP_SIZE) {
+    if (file.size === 0) {
       return NextResponse.json(
-        { error: `File too large. Maximum size is ${MAX_ZIP_SIZE / (1024 * 1024)}MB` },
+        { error: 'Empty file detected. Please select a valid ZIP file.' },
         { status: 400 }
       );
     }
+    
+    if (file.size > MAX_ZIP_SIZE) {
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      const maxSizeMB = MAX_ZIP_SIZE / (1024 * 1024);
+      return NextResponse.json(
+        { error: `File too large (${fileSizeMB}MB). Maximum allowed size is ${maxSizeMB}MB.` },
+        { status: 413 }
+      );
+    }
 
-    // Convert file to buffer
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    // Convert file to buffer with error handling
+    let bytes;
+    let buffer;
+    try {
+      bytes = await file.arrayBuffer();
+      buffer = Buffer.from(bytes);
+    } catch (bufferError) {
+      console.error('Failed to read file buffer:', bufferError);
+      return NextResponse.json(
+        { error: 'Failed to read uploaded file. The file may be corrupted.' },
+        { status: 400 }
+      );
+    }
 
     // Create temporary directory
     const tempDir = path.join(os.tmpdir(), `git-scan-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
 
     try {
-      // Extract ZIP file
-      const zip = new AdmZip(buffer);
-      zip.extractAllTo(tempDir, true);
+      // Extract ZIP file with comprehensive error handling
+      let zip;
+      try {
+        zip = new AdmZip(buffer);
+      } catch (zipError) {
+        console.error('Failed to create ZIP instance:', zipError);
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        return NextResponse.json(
+          { error: 'Invalid ZIP file format. Please ensure the file is a valid ZIP archive.' },
+          { status: 400 }
+        );
+      }
+      
+      try {
+        zip.extractAllTo(tempDir, true);
+      } catch (extractError: any) {
+        console.error('Failed to extract ZIP file:', extractError);
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        
+        if (extractError.message?.includes('password') || extractError.message?.includes('encrypted')) {
+          return NextResponse.json(
+            { error: 'Password-protected ZIP files are not supported. Please upload an unprotected ZIP file.' },
+            { status: 400 }
+          );
+        } else if (extractError.message?.includes('corrupted') || extractError.message?.includes('invalid')) {
+          return NextResponse.json(
+            { error: 'ZIP file appears to be corrupted. Please try re-creating the ZIP file.' },
+            { status: 400 }
+          );
+        } else {
+          return NextResponse.json(
+            { error: 'Failed to extract ZIP file. Please check that the file is a valid ZIP archive.' },
+            { status: 400 }
+          );
+        }
+      }
 
       // Process extracted files
-      const files = await processExtractedFiles(tempDir);
+      let files;
+      try {
+        files = await processExtractedFiles(tempDir);
+      } catch (processError) {
+        console.error('Failed to process extracted files:', processError);
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        return NextResponse.json(
+          { error: 'Failed to process extracted files. Please ensure the ZIP contains valid code files.' },
+          { status: 500 }
+        );
+      }
+      
+      if (!files || files.length === 0) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        return NextResponse.json(
+          { error: 'No supported code files found in ZIP. Please include files with extensions like .js, .ts, .py, .java, .php, etc.' },
+          { status: 400 }
+        );
+      }
 
       // Clean up temporary directory
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+
+      // Generate safe project name
+      const projectName = file.name.replace(/\.zip$/i, '').replace(/[^a-zA-Z0-9-_]/g, '-');
 
       return NextResponse.json({
         success: true,
         files: files,
-        projectName: file.name.replace('.zip', ''),
+        projectName: projectName,
+        fileCount: files.length
       });
 
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Unexpected error during ZIP processing:', error);
       // Clean up on error
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
       throw error;
     }
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('ZIP upload error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process ZIP file' },
-      { status: 500 }
-    );
+    
+    // Handle specific error types with user-friendly messages
+    if (error.code === 'ENOSPC') {
+      return NextResponse.json(
+        { error: 'Server storage full. Please try again later or contact support.' },
+        { status: 507 }
+      );
+    } else if (error.code === 'EMFILE' || error.code === 'ENFILE') {
+      return NextResponse.json(
+        { error: 'Server is busy processing files. Please try again in a moment.' },
+        { status: 503 }
+      );
+    } else if (error.code === 'EACCES') {
+      return NextResponse.json(
+        { error: 'Server permission error. Please contact support.' },
+        { status: 500 }
+      );
+    } else if (error.message?.includes('timeout')) {
+      return NextResponse.json(
+        { error: 'Upload timeout. Please try with a smaller ZIP file or check your connection.' },
+        { status: 408 }
+      );
+    } else {
+      return NextResponse.json(
+        { error: 'Failed to process ZIP file. Please try again or contact support if the problem persists.' },
+        { status: 500 }
+      );
+    }
   }
 }
 
@@ -131,16 +248,33 @@ async function processExtractedFiles(dirPath: string): Promise<CodeSnippet[]> {
 
         if (isAllowed && !isIgnored) {
           try {
+            // Check file size before reading
+            const stats = await fs.stat(fullPath);
+            if (stats.size > 5 * 1024 * 1024) { // Skip files larger than 5MB
+              console.warn(`Skipping large file ${itemRelativePath} (${(stats.size / 1024 / 1024).toFixed(1)}MB)`);
+              continue;
+            }
+            
             const content = await fs.readFile(fullPath, 'utf-8');
             const extension = item.name.split('.').pop()?.toLowerCase() || 'text';
+            
+            // Basic validation of file content
+            if (content.length === 0) {
+              console.warn(`Skipping empty file: ${itemRelativePath}`);
+              continue;
+            }
 
             codeSnippets.push({
               name: itemRelativePath,
+              path: itemRelativePath,
               content: content,
               language: extension,
+              size: stats.size
             });
-          } catch (error) {
+          } catch (error: any) {
             console.error(`Failed to read file ${itemRelativePath}:`, error);
+            // Don't fail the entire process for individual file errors
+            continue;
           }
         }
       }

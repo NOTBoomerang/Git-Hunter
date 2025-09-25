@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import ErrorBoundary from "@/components/error-boundary";
+import { ToastProvider } from "@/components/toast";
 
 export const metadata: Metadata = {
   title: "GitHunter - AI-Powered Security Scanner",
@@ -13,7 +15,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`antialiased`}>{children}</body>
+      <body className={`antialiased`}>
+        <ToastProvider>
+          <ErrorBoundary showDetails={process.env.NODE_ENV === 'development'}>
+            {children}
+          </ErrorBoundary>
+        </ToastProvider>
+      </body>
     </html>
   );
 }

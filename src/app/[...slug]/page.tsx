@@ -36,6 +36,7 @@ export default function Page() {
   const [codeSnippets, setCodeSnippets] = useState<CodeSnippet[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [openCard, setOpenCard] = useState<boolean>(false);
   const [vulnerabilityCardInfo, setVulnerabilityCardInfo] = useState<
     Omit<VulnerabilityCardProps, "setOpenCard">
@@ -52,52 +53,63 @@ export default function Page() {
     number | null
   >(null);
 
-  useEffect(() => {
-    async function loadAndAnalyseFiles() {
-      try {
-        setError(null);
-        const files: CodeSnippet[] = await fetchRepoFiles(owner, repo);
-        
-        if (files.length === 0) {
-          setLoading(false);
-          return;
-        }
-        
-        setCodeSnippets(
-          files.map((file) => ({ ...file, isOpen: false, isLoading: true }))
-        );
+  const loadAndAnalyseFiles = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      setIsRetrying(false);
+      
+      const files: CodeSnippet[] = await fetchRepoFiles(owner, repo);
+      
+      if (files.length === 0) {
         setLoading(false);
-        
-        for (const [fileIndex, file] of files.entries()) {
-          try {
-            const { isSecure } = await checkCodeSecurity(
-              file.content.replaceAll(/[\s\n]/g, "")
-            );
-            setCodeSnippets((prev) =>
-              prev.map((prevFile, prevIndex) =>
-                prevIndex !== fileIndex
-                  ? { ...prevFile }
-                  : { ...prevFile, isSecure, isLoading: false }
-              )
-            );
-          } catch (securityError) {
-            console.error(`Error analyzing ${file.name}:`, securityError);
-            // Mark as secure by default if analysis fails
-            setCodeSnippets((prev) =>
-              prev.map((prevFile, prevIndex) =>
-                prevIndex !== fileIndex
-                  ? { ...prevFile }
-                  : { ...prevFile, isSecure: true, isLoading: false }
-              )
-            );
-          }
-        }
-      } catch (err: any) {
-        console.error('Error loading repository:', err);
-        setError(err.message || 'Failed to load repository');
-        setLoading(false);
+        return;
       }
+      
+      setCodeSnippets(
+        files.map((file) => ({ ...file, isOpen: false, isLoading: true }))
+      );
+      setLoading(false);
+      
+      // Analyze files for security vulnerabilities
+      for (const [fileIndex, file] of files.entries()) {
+        try {
+          const { isSecure } = await checkCodeSecurity(
+            file.content.replaceAll(/[\s\n]/g, "")
+          );
+          setCodeSnippets((prev) =>
+            prev.map((prevFile, prevIndex) =>
+              prevIndex !== fileIndex
+                ? { ...prevFile }
+                : { ...prevFile, isSecure, isLoading: false }
+            )
+          );
+        } catch (securityError: any) {
+          console.error(`Error analyzing ${file.name}:`, securityError);
+          
+          // Show warning for analysis failures but continue
+          setCodeSnippets((prev) =>
+            prev.map((prevFile, prevIndex) =>
+              prevIndex !== fileIndex
+                ? { ...prevFile }
+                : { 
+                    ...prevFile, 
+                    isSecure: true, 
+                    isLoading: false,
+                    message: `Analysis failed: ${securityError.message || 'Unknown error'}`
+                  }
+            )
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('Error loading repository:', err);
+      setError(err.message || 'Failed to load repository');
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadAndAnalyseFiles();
   }, [owner, repo]);
 
@@ -136,16 +148,78 @@ export default function Page() {
             ))}
           </div>
         ) : error ? (
-          <div className="p-6 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center">
+          <div className="p-6 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center max-w-2xl mx-auto">
             <div className="text-red-400 mb-3 text-4xl">⚠️</div>
             <h3 className="text-red-800 font-semibold mb-2">Failed to Load Repository</h3>
             <p className="text-red-600 text-center mb-4">{error}</p>
-            <div className="bg-red-100 p-3 rounded-lg">
-              <p className="text-red-700 text-sm">💡 <strong>Quick Fix:</strong></p>
-              <ul className="text-red-600 text-sm mt-1 space-y-1">
-                <li>• Set up your GitHub token in <code>.env.local</code></li>
-                <li>• Make sure the repository is public</li>
-                <li>• Check your internet connection</li>
+            
+            {/* Action buttons */}
+            <div className="flex gap-3 mb-4">
+              <Button 
+                onClick={() => {
+                  setIsRetrying(true);
+                  loadAndAnalyseFiles();
+                }} 
+                disabled={isRetrying}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {isRetrying ? (
+                  <>
+                    <LoaderCircleIcon className="w-4 h-4 mr-2 animate-spin" />
+                    Retrying...
+                  </>
+                ) : (
+                  'Try Again'
+                )}
+              </Button>
+              
+              <Button 
+                onClick={() => window.location.href = '/'}
+                variant="outline"
+                className="border-red-300 text-red-700 hover:bg-red-50"
+              >
+                Back to Home
+              </Button>
+            </div>
+            
+            {/* Helpful tips based on error type */}
+            <div className="bg-red-100 p-4 rounded-lg w-full">
+              <p className="text-red-700 text-sm font-medium mb-2">💡 Common Solutions:</p>
+              <ul className="text-red-600 text-sm space-y-1">
+                {error.includes('GitHub token') && (
+                  <li>• Add <code>NEXT_GITHUB_TOKEN=your_token_here</code> to your <code>.env.local</code> file</li>
+                )}
+                {error.includes('not found') && (
+                  <>
+                    <li>• Check the repository URL spelling</li>
+                    <li>• Ensure the repository exists and is publicly accessible</li>
+                  </>
+                )}
+                {error.includes('Access denied') && (
+                  <>
+                    <li>• Make sure the repository is public, or</li>
+                    <li>• Verify your GitHub token has the necessary permissions</li>
+                  </>
+                )}
+                {error.includes('Network error') && (
+                  <>
+                    <li>• Check your internet connection</li>
+                    <li>• Try again in a few moments</li>
+                  </>
+                )}
+                {error.includes('OpenAI') && (
+                  <>
+                    <li>• Add <code>NEXT_OPENAI_API_KEY=your_api_key</code> to your <code>.env.local</code> file</li>
+                    <li>• Ensure you have OpenAI API credits available</li>
+                  </>
+                )}
+                {!error.includes('GitHub token') && !error.includes('not found') && !error.includes('Access denied') && !error.includes('Network error') && !error.includes('OpenAI') && (
+                  <>
+                    <li>• Check your internet connection</li>
+                    <li>• Verify the repository URL is correct</li>
+                    <li>• Try refreshing the page</li>
+                  </>
+                )}
               </ul>
             </div>
           </div>
@@ -242,16 +316,30 @@ export default function Page() {
                                   // const formattedCode =
                                   //   snippet.content?.replaceAll(/[\s\n]/g, "");
 
-                                  const scanVulnerabilityResponse =
-                                    await scanVulnerability(snippet.content);
+                                  try {
+                                    const scanVulnerabilityResponse =
+                                      await scanVulnerability(snippet.content);
 
-                                  setVulnerabilityCardInfo((prev) => ({
-                                    ...prev,
-                                    ...scanVulnerabilityResponse,
-                                    codeLanguage: snippet.language,
-                                    codeFileName: snippet.name,
-                                    vulnerabilityCardLoading: false,
-                                  }));
+                                    setVulnerabilityCardInfo((prev) => ({
+                                      ...prev,
+                                      ...scanVulnerabilityResponse,
+                                      codeLanguage: snippet.language,
+                                      codeFileName: snippet.name,
+                                      vulnerabilityCardLoading: false,
+                                    }));
+                                  } catch (analysisError: any) {
+                                    console.error('Vulnerability analysis failed:', analysisError);
+                                    setVulnerabilityCardInfo((prev) => ({
+                                      ...prev,
+                                      riskLevel: "error" as RiskLevel,
+                                      riskTitle: "Analysis Failed",
+                                      riskDescription: `Unable to analyze this file: ${analysisError.message || 'Unknown error occurred'}. This might be due to API limits, network issues, or file complexity.`,
+                                      correctCode: `// Analysis failed for ${snippet.name}\n// Error: ${analysisError.message || 'Unknown error'}\n\n${snippet.content}`,
+                                      codeLanguage: snippet.language,
+                                      codeFileName: snippet.name,
+                                      vulnerabilityCardLoading: false,
+                                    }));
+                                  }
                                 }}
                               >
                                 {snippet.isSecure ? (

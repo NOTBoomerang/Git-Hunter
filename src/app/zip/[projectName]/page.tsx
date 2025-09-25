@@ -35,6 +35,7 @@ export default function ZipAnalysisPage() {
   const [codeSnippets, setCodeSnippets] = useState<CodeSnippet[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [openCard, setOpenCard] = useState<boolean>(false);
   const [vulnerabilityCardInfo, setVulnerabilityCardInfo] = useState<
     Omit<VulnerabilityCardProps, "setOpenCard">
@@ -51,63 +52,93 @@ export default function ZipAnalysisPage() {
     number | null
   >(null);
 
-  useEffect(() => {
-    async function loadAndAnalyseFiles() {
-      try {
-        // Get uploaded files from localStorage
-        const uploadedFilesData = localStorage.getItem('uploadedFiles');
-        const storedProjectName = localStorage.getItem('projectName');
+  const loadAndAnalyseFiles = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      setIsRetrying(false);
+      
+      // Get uploaded files from localStorage
+      const uploadedFilesData = localStorage.getItem('uploadedFiles');
+      const storedProjectName = localStorage.getItem('projectName');
 
-        if (!uploadedFilesData || !storedProjectName || storedProjectName !== projectName) {
-          // Redirect back to home if no data found or mismatched project name
-          router.push('/');
-          return;
-        }
-
-        const files: CodeSnippet[] = JSON.parse(uploadedFilesData);
-        
-        setCodeSnippets(
-          files.map((file) => ({ ...file, isOpen: false, isLoading: true }))
-        );
+      if (!uploadedFilesData || !storedProjectName) {
+        setError('No upload data found. Please upload a ZIP file again.');
         setLoading(false);
-
-        // Analyze each file for security vulnerabilities
-        for (const [fileIndex, file] of files.entries()) {
-          try {
-            const { isSecure } = await checkCodeSecurity(
-              file.content.replaceAll(/[\s\n]/g, "")
-            );
-            setCodeSnippets((prev) =>
-              prev.map((prevFile, prevIndex) =>
-                prevIndex !== fileIndex
-                  ? { ...prevFile }
-                  : { ...prevFile, isSecure, isLoading: false }
-              )
-            );
-          } catch (securityError) {
-            console.error(`Error analyzing ${file.name}:`, securityError);
-            // Mark as secure by default if analysis fails
-            setCodeSnippets((prev) =>
-              prev.map((prevFile, prevIndex) =>
-                prevIndex !== fileIndex
-                  ? { ...prevFile }
-                  : { ...prevFile, isSecure: true, isLoading: false }
-              )
-            );
-          }
-        }
-
-        // Clean up localStorage after processing
-        localStorage.removeItem('uploadedFiles');
-        localStorage.removeItem('projectName');
-
-      } catch (err: any) {
-        console.error('Error loading ZIP files:', err);
-        setError(err.message || 'Failed to load ZIP file data');
-        setLoading(false);
+        return;
       }
+      
+      if (storedProjectName !== projectName) {
+        setError('Project name mismatch. Please upload the ZIP file again.');
+        setLoading(false);
+        return;
+      }
+
+      let files: CodeSnippet[];
+      try {
+        files = JSON.parse(uploadedFilesData);
+      } catch (parseError) {
+        console.error('Failed to parse uploaded files data:', parseError);
+        setError('Invalid upload data format. Please upload the ZIP file again.');
+        setLoading(false);
+        return;
+      }
+      
+      if (!Array.isArray(files) || files.length === 0) {
+        setError('No valid files found in upload data. Please upload a ZIP file with code files.');
+        setLoading(false);
+        return;
+      }
+        
+      setCodeSnippets(
+        files.map((file) => ({ ...file, isOpen: false, isLoading: true }))
+      );
+      setLoading(false);
+
+      // Analyze each file for security vulnerabilities
+      for (const [fileIndex, file] of files.entries()) {
+        try {
+          const { isSecure } = await checkCodeSecurity(
+            file.content.replaceAll(/[\s\n]/g, "")
+          );
+          setCodeSnippets((prev) =>
+            prev.map((prevFile, prevIndex) =>
+              prevIndex !== fileIndex
+                ? { ...prevFile }
+                : { ...prevFile, isSecure, isLoading: false }
+            )
+          );
+        } catch (securityError: any) {
+          console.error(`Error analyzing ${file.name}:`, securityError);
+          
+          // Show warning for analysis failures but continue
+          setCodeSnippets((prev) =>
+            prev.map((prevFile, prevIndex) =>
+              prevIndex !== fileIndex
+                ? { ...prevFile }
+                : { 
+                    ...prevFile, 
+                    isSecure: true, 
+                    isLoading: false,
+                    message: `Analysis failed: ${securityError.message || 'Unknown error'}`
+                  }
+            )
+          );
+        }
+      }
+
+      // Clean up localStorage after successful processing
+      localStorage.removeItem('uploadedFiles');
+      localStorage.removeItem('projectName');
+
+    } catch (err: any) {
+      console.error('Error loading ZIP files:', err);
+      setError(err.message || 'Failed to load ZIP file data');
+      setLoading(false);
     }
-    
+  };
+  
+  useEffect(() => {
     loadAndAnalyseFiles();
   }, [projectName, router]);
 
@@ -158,16 +189,85 @@ export default function ZipAnalysisPage() {
             ))}
           </div>
         ) : error ? (
-          <div className="p-6 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center">
+          <div className="p-6 bg-red-50 border border-red-200 rounded-xl flex flex-col items-center max-w-2xl mx-auto">
             <div className="text-red-400 mb-3 text-4xl">⚠️</div>
             <h3 className="text-red-800 font-semibold mb-2">Failed to Load ZIP Files</h3>
             <p className="text-red-600 text-center mb-4">{error}</p>
-            <button 
-              onClick={() => router.push('/')}
-              className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-            >
-              Return to Upload
-            </button>
+            
+            {/* Action buttons */}
+            <div className="flex gap-3 mb-4">
+              {/* Only show retry if it's not a data issue */}
+              {!error.includes('No upload data') && !error.includes('Project name mismatch') && !error.includes('Invalid upload data') && (
+                <Button 
+                  onClick={() => {
+                    setIsRetrying(true);
+                    loadAndAnalyseFiles();
+                  }} 
+                  disabled={isRetrying}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {isRetrying ? (
+                    <>
+                      <LoaderCircleIcon className="w-4 h-4 mr-2 animate-spin" />
+                      Retrying...
+                    </>
+                  ) : (
+                    'Try Again'
+                  )}
+                </Button>
+              )}
+              
+              <Button 
+                onClick={() => router.push('/')}
+                variant={error.includes('No upload data') || error.includes('Project name mismatch') || error.includes('Invalid upload data') ? "default" : "outline"}
+                className={error.includes('No upload data') || error.includes('Project name mismatch') || error.includes('Invalid upload data') ? "" : "border-red-300 text-red-700 hover:bg-red-50"}
+              >
+                Upload New ZIP File
+              </Button>
+            </div>
+            
+            {/* Helpful tips based on error type */}
+            <div className="bg-red-100 p-4 rounded-lg w-full">
+              <p className="text-red-700 text-sm font-medium mb-2">💡 What to do:</p>
+              <ul className="text-red-600 text-sm space-y-1">
+                {error.includes('No upload data') && (
+                  <>
+                    <li>• Upload data has expired or was not found</li>
+                    <li>• Please return to the home page and upload your ZIP file again</li>
+                  </>
+                )}
+                {error.includes('Project name mismatch') && (
+                  <>
+                    <li>• The URL doesn't match the uploaded project</li>
+                    <li>• Please upload your ZIP file again</li>
+                  </>
+                )}
+                {error.includes('Invalid upload data') && (
+                  <>
+                    <li>• Upload data is corrupted or invalid</li>
+                    <li>• Please try uploading your ZIP file again</li>
+                  </>
+                )}
+                {error.includes('No valid files') && (
+                  <>
+                    <li>• The ZIP file doesn't contain supported code files</li>
+                    <li>• Make sure your ZIP contains .js, .ts, .py, .php, .java, or other code files</li>
+                  </>
+                )}
+                {error.includes('OpenAI') && (
+                  <>
+                    <li>• OpenAI API configuration issue</li>
+                    <li>• Contact support if the problem persists</li>
+                  </>
+                )}
+                {!error.includes('No upload data') && !error.includes('Project name mismatch') && !error.includes('Invalid upload data') && !error.includes('No valid files') && !error.includes('OpenAI') && (
+                  <>
+                    <li>• Try refreshing the page or uploading again</li>
+                    <li>• Check that your ZIP file is not corrupted</li>
+                  </>
+                )}
+              </ul>
+            </div>
           </div>
         ) : codeSnippets.length === 0 ? (
           <div className="p-6 bg-gray-100 rounded-xl flex flex-col items-center">
@@ -260,16 +360,30 @@ export default function ZipAnalysisPage() {
                                   setSelectedSnippetIndex(index);
                                   setOpenCard(true);
 
-                                  const scanVulnerabilityResponse =
-                                    await scanVulnerability(snippet.content);
+                                  try {
+                                    const scanVulnerabilityResponse =
+                                      await scanVulnerability(snippet.content);
 
-                                  setVulnerabilityCardInfo((prev) => ({
-                                    ...prev,
-                                    ...scanVulnerabilityResponse,
-                                    codeLanguage: snippet.language,
-                                    codeFileName: snippet.name,
-                                    vulnerabilityCardLoading: false,
-                                  }));
+                                    setVulnerabilityCardInfo((prev) => ({
+                                      ...prev,
+                                      ...scanVulnerabilityResponse,
+                                      codeLanguage: snippet.language,
+                                      codeFileName: snippet.name,
+                                      vulnerabilityCardLoading: false,
+                                    }));
+                                  } catch (analysisError: any) {
+                                    console.error('Vulnerability analysis failed:', analysisError);
+                                    setVulnerabilityCardInfo((prev) => ({
+                                      ...prev,
+                                      riskLevel: "error" as RiskLevel,
+                                      riskTitle: "Analysis Failed",
+                                      riskDescription: `Unable to analyze this file: ${analysisError.message || 'Unknown error occurred'}. This might be due to API limits, network issues, or file complexity.`,
+                                      correctCode: `// Analysis failed for ${snippet.name}\n// Error: ${analysisError.message || 'Unknown error'}\n\n${snippet.content}`,
+                                      codeLanguage: snippet.language,
+                                      codeFileName: snippet.name,
+                                      vulnerabilityCardLoading: false,
+                                    }));
+                                  }
                                 }}
                               >
                                 {snippet.isSecure ? (
