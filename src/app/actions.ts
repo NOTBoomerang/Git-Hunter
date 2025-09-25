@@ -423,16 +423,7 @@ async function fallbackPatternAnalysis(snippet: CodeSnippet): Promise<Vulnerabil
     /passthru\s*\([^)]*\+/gi, // passthru with concatenation
   ];
 
-  // Hardcoded secrets patterns
-  const secretPatterns = [
-    /(api[_-]?key|apikey)\s*[:=]\s*["'][^"']{10,}["']/gi,
-    /(secret|password|pwd|pass)\s*[:=]\s*["'][^"']{3,}["']/gi,
-    /(token|auth[_-]?token)\s*[:=]\s*["'][^"']{10,}["']/gi,
-    /sk-[a-zA-Z0-9]{20,}/g, // OpenAI API keys
-    /ghp_[a-zA-Z0-9]{36}/g, // GitHub tokens
-    /AIza[a-zA-Z0-9_-]{35}/g, // Google API keys
-    /AKIA[a-zA-Z0-9]{16}/g, // AWS Access Keys
-  ];
+  // ...existing code...
 
   // Path Traversal patterns
   const pathTraversalPatterns = [
@@ -503,22 +494,7 @@ async function fallbackPatternAnalysis(snippet: CodeSnippet): Promise<Vulnerabil
     }
   }
 
-  // Check Hardcoded Secrets
-  for (const pattern of secretPatterns) {
-    const matches = snippet.content.match(pattern);
-    if (matches) {
-      vulnerabilities.push({
-        severity: "high",
-        title: "Hardcoded Secrets Detected",
-        description: `Hardcoded secrets or credentials found in the code. This is a critical security issue as sensitive information should never be stored in source code. Detected: ${matches[0].substring(0, 30)}...`,
-        file: snippet.name,
-        startLine: findLineNumber(lines, matches[0]),
-        endLine: findLineNumber(lines, matches[0]),
-        fix: "Move all secrets to environment variables or a secure secrets management system. Use process.env.SECRET_NAME to access them at runtime.",
-        confidence: 0.95
-      });
-    }
-  }
+  // ...existing code...
 
   // Check Path Traversal
   for (const pattern of pathTraversalPatterns) {
