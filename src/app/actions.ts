@@ -11,7 +11,7 @@ import path from "path";
  * High-ROI defaults (override via env)
  */
 const GITHUB_API = process.env.NEXT_GITHUB_API || "https://api.github.com";
-const GITHUB_TOKEN = process.env.NEXT_GITHUB_TOKEN || "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";
+const GITHUB_TOKEN = process.env.NEXT_GITHUB_TOKEN || "";
 const OPENAI_KEY = process.env.NEXT_OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
 const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE_BYTES || 1024 * 1024); // 1MB
