@@ -11,9 +11,9 @@ import path from "path";
  * High-ROI defaults (override via env)
  */
 const GITHUB_API = process.env.NEXT_GITHUB_API || "https://api.github.com";
-const GITHUB_TOKEN = process.env.NEXT_GITHUB_TOKEN || "";
-const OPENAI_KEY = process.env.NEXT_OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-3.5-turbo";
+const GITHUB_TOKEN = process.env.NEXT_GITHUB_TOKEN || "[MASKED]";
+const OPENAI_KEY = process.env.NEXT_OPENAI_API_KEY || "[MASKED]";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "[MASKED]";
 const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE_BYTES || 1024 * 1024); // 1MB
 const MAX_FILES = Number(process.env.MAX_FILES || 100);
 const BATCH_DOWNLOAD_CONCURRENCY = Number(process.env.BATCH_DOWNLOAD_CONCURRENCY || 8); // Increased for faster downloads
@@ -967,8 +967,8 @@ export async function debugEnvironment() {
     hasOpenAiKey: !!OPENAI_KEY,
     githubApi: GITHUB_API,
     openaiModel: OPENAI_MODEL,
-    githubTokenPreview: GITHUB_TOKEN ? `${GITHUB_TOKEN.substring(0, 10)}...` : "Not set",
-    openaiKeyPreview: OPENAI_KEY ? `${OPENAI_KEY.substring(0, 10)}...` : "Not set"
+  githubTokenPreview: GITHUB_TOKEN ? "[MASKED]" : "Not set",
+  openaiKeyPreview: OPENAI_KEY ? "[MASKED]" : "Not set"
   };
 }
 
