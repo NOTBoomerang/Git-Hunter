@@ -1,0 +1,105 @@
+{
+  "node": {
+    "008664ea3258e58a551eda3d9cf841ad4891efff1d": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "40168f14f5cd1ca63582a4423880f230575c4a3cae": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "40347afb77295f1eaeb69af5c659c9a54cac5b9bcf": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "40d4d0d90f9d762d679ef2fb47a9e99b50374447c5": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "40d6c8da0a195ae774261ad30bff337848de60b2b6": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "60445b9756b179db5fad13de7a32e58aea2087a7b1": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "605bdb6d3aeb5fcdcb52c3b3298eefd8d0e826c987": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "60ffd660851ac8d0da75b409e3f94752b88393ab2e": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    },
+    "70b085b60687018d99411dba45157e04a55b437dd6": {
+      "workers": {
+        "app/[...slug]/page": {
+          "moduleId": "[project]/.next-internal/server/app/[...slug]/page/actions.js { ACTIONS_MODULE0 => \"[project]/src/app/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false
+        }
+      },
+      "layer": {
+        "app/[...slug]/page": "action-browser"
+      }
+    }
+  },
+  "edge": {},
+  "encryptionKey": "D33ykJiOa7Uda8Vnfkxq7HcJEMfGflkZ2D1I1IPn/Vk="
+}
